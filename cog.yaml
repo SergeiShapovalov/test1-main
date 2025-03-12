@@ -1,6 +1,6 @@
 # Configuration for Cog ⚙️
 # Reference: https://github.com/replicate/cog/blob/main/docs/yaml.md
-# Build timestamp: 2025-03-08:18-49 (обновляйте эту строку при каждой сборке, чтобы избежать кэширования)
+# Build timestamp: 2025-03-12:22-15 (обновляйте эту строку при каждой сборке, чтобы избежать кэширования)
 
 build:
   # Настройки GPU и CUDA
