@@ -41,7 +41,7 @@ build:
 
   # commands run after the environment is setup
   run:
-    - echo "Cache 105"
+    - echo "Cache 106"
     - apt-get update && apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 ffmpeg
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.8.2/pget_linux_x86_64" && chmod +x /usr/local/bin/pget
     - curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq
