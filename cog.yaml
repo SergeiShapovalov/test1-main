@@ -53,9 +53,9 @@ build:
     - mkdir -p /src/models/VAE
     - mkdir -p /src/models/Stable-diffusion
     # Загружаем необходимые файлы моделей
-    - pget -f "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors?download=true" /src/models/text_encoder/clip_l.safetensors
-    - pget -f "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors?download=true" /src/models/text_encoder/t5xxl_fp16.safetensors
-    - pget -f "https://ai-photo.fra1.cdn.digitaloceanspaces.com/ae.safetensors" /src/models/VAE/ae.safetensors
+    - pget -f "https://weights.replicate.delivery/default/official-models/flux/clip/clip-vit-large-patch14.tar" /src/models/text_encoder/clip_l.safetensors
+    - pget -f "https://weights.replicate.delivery/default/official-models/flux/t5/t5-v1_1-xxl.tar" /src/models/text_encoder/t5xxl_fp16.safetensors
+    - pget -f "https://weights.replicate.delivery/default/official-models/flux/ae/ae.sft" /src/models/VAE/ae.safetensors
     # Загружаем основной чекпоинт Flux
     - pget -f "https://civitai.com/api/download/models/819165?type=Model&format=SafeTensor&size=full&fp=nf4&token=18b51174c4d9ae0451a3dedce1946ce3" /src/models/Stable-diffusion/flux_checkpoint.safetensors
 
