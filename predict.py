@@ -21,7 +21,7 @@ def catchtime(tag: str) -> Callable[[], float]:
     print(f'[Timer: {tag}]: {perf_counter() - start:.3f} seconds')
 
 
-FLUX_CHECKPOINT_URL = "https://civitai.com/api/download/models/819165?type=Model&format=SafeTensor&size=full&fp=nf4&token=18b51174c4d9ae0451a3dedce1946ce3"
+# Ссылка на чекпоинт перенесена в параметр debug_flux_checkpoint_url
 sys.path.extend(["/src"])
 
 
@@ -85,14 +85,18 @@ class Predictor(BasePredictor):
         os.makedirs(target_dir, exist_ok=True)
         model_path = os.path.join(target_dir, "flux_checkpoint.safetensors")
 
-        if not os.path.exists(model_path):
-            print(f"Загружаем модель Flux...")
-            download_base_weights(url=FLUX_CHECKPOINT_URL, dest=model_path)
-        elif force_download_url:
-            print(f"Загружаем модель Flux... {force_download_url=}")
+        # Проверяем наличие файла и скачиваем только если его нет или указан force_download_url
+        if force_download_url:
+            print(f"Загружаем модель Flux с указанного URL... {force_download_url=}")
             download_base_weights(url=force_download_url, dest=model_path)
+        elif not os.path.exists(model_path):
+            # Используем URL из параметра debug_flux_checkpoint_url, который задан по умолчанию
+            from inspect import signature
+            default_url = signature(self.predict).parameters['debug_flux_checkpoint_url'].default
+            print(f"Модель Flux не найдена, загружаем с URL по умолчанию...")
+            download_base_weights(url=default_url, dest=model_path)
         else:
-            print(f"Модель Flux уже загружена: {model_path}, {os.path.exists(model_path)=}, {force_download_url=}")
+            print(f"Модель Flux уже загружена: {model_path}")
 
         # workaround for replicate since its entrypoint may contain invalid args
         os.environ["IGNORE_CMD_ARGS_ERRORS"] = "1"
@@ -135,7 +139,7 @@ class Predictor(BasePredictor):
         shared.opts.set('sd_model_checkpoint', 'flux_checkpoint.safetensors')
 
         # Устанавливаем unet тип на 'Automatic (fp16 LoRA)' для Flux, чтобы LoRA работали правильно
-        shared.opts.set('forge_unet_storage_dtype', 'bnb-nf4')
+        shared.opts.set('forge_unet_storage_dtype', 'Automatic (fp16 LoRA)')
 
         # Оптимизация памяти для лучшего качества и скорости с Flux
         if self.has_memory_management:
@@ -232,10 +236,7 @@ class Predictor(BasePredictor):
 
     def predict(
         self,
-        prompt: str = Input(description="Prompt"),
-        negative_prompt: str = Input(
-            description="Negative Prompt (для Flux рекомендуется оставить пустым и использовать Distilled CFG)",
-            default="",
+        prompt: str = Input(description="Prompt"
         ),
         width: int = Input(
             description="Width of output image", ge=1, le=1280, default=768
@@ -251,6 +252,7 @@ class Predictor(BasePredictor):
             choices=[
                 "[Forge] Flux Realistic",
                 "Euler",
+                "DEIS",
                 "Euler a",
                 "DPM++ 2M",
                 "DPM++ SDE",
@@ -285,10 +287,10 @@ class Predictor(BasePredictor):
             default="Simple",
         ),
         num_inference_steps: int = Input(
-            description="Number of denoising steps", ge=1, le=50, default=15
+            description="Number of denoising steps", ge=1, le=50, default=28
         ),
         guidance_scale: float = Input(
-            description="CFG Scale (для Flux рекомендуется значение 1.0)", ge=1, le=50, default=1.0
+            description="CFG Scale (для Flux рекомендуется значение 1.0)", ge=0, le=50, default=1.0
         ),
         distilled_guidance_scale: float = Input(
             description="Distilled CFG Scale (основной параметр для Flux, рекомендуется 3.5)", ge=0, le=30,
@@ -325,16 +327,16 @@ class Predictor(BasePredictor):
             default="Latent",
         ),
         hr_steps: int = Input(
-            description="Inference steps for Hires. fix", ge=0, le=100, default=20
+            description="Inference steps for Hires. fix", ge=0, le=100, default=10
         ),
         hr_scale: float = Input(
-            description="Factor to scale image by", ge=1, le=4, default=2
+            description="Factor to scale image by", ge=1, le=4, default=1.5
         ),
         denoising_strength: float = Input(
             description="Denoising strength. 1.0 corresponds to full destruction of information in init image",
             ge=0,
             le=1,
-            default=0.5,
+            default=0.1,
         ),
         lora_urls: list[str] = Input(
             description="Ссылки на LoRA файлы",
@@ -346,7 +348,7 @@ class Predictor(BasePredictor):
         ),
         debug_flux_checkpoint_url: str = Input(
             description="Flux checkpoint URL",
-            default=""
+            default="https://civitai.com/api/download/models/819165?type=Model&format=SafeTensor&size=full&fp=nf4&token=18b51174c4d9ae0451a3dedce1946ce3"
         ),
         enable_clip_l: bool = Input(
             description="Enable encoder",
@@ -380,7 +382,6 @@ class Predictor(BasePredictor):
 
         payload = {
             "prompt": prompt,
-            "negative_prompt": negative_prompt,
             "width": width,
             "height": height,
             "batch_size": num_outputs,

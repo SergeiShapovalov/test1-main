@@ -5,7 +5,7 @@
 build:
   # Настройки GPU и CUDA
   gpu: true
-  cuda: "12.4"
+  cuda: "12.6.2"
 
   # Версия Python
   python_version: "3.11"
@@ -33,22 +33,30 @@ build:
     - "opencv-python==4.10.0.84"
     - "gguf==0.14.0"
     
-    # PyTorch и связанные пакеты
-    - "https://download.pytorch.org/whl/nightly/cu124/torch-2.6.0.dev20240918%2Bcu124-cp311-cp311-linux_x86_64.whl"
-    - "https://download.pytorch.org/whl/nightly/cu124/torchaudio-2.5.0.dev20240918%2Bcu124-cp311-cp311-linux_x86_64.whl"
-    - "https://download.pytorch.org/whl/nightly/cu124/torchvision-0.20.0.dev20240918%2Bcu124-cp311-cp311-linux_x86_64.whl"
-    - "https://download.pytorch.org/whl/nightly/pytorch_triton-3.1.0%2B5fe38ffd73-cp311-cp311-linux_x86_64.whl"
+    # PyTorch и связанные пакеты (стабильные версии для CUDA 12.6)
+    - "torch==2.6.0+cu126"
+    - "torchvision==0.21.0+cu126"
+    - "torchaudio==2.6.0+cu126"
+    - "--extra-index-url=https://download.pytorch.org/whl/cu126"
 
   # commands run after the environment is setup
   run:
     - echo "Cache 105"
     - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.8.2/pget_linux_x86_64" && chmod +x /usr/local/bin/pget
     - curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq
-    - git clone https://github.com/iQiexie/test1 /src
+    - git clone https://github.com/SergeiShapovalov/test1-main/ /src
     - mv /src/stable-diffusion-webui-forge-main/* /src
-    - wget --content-disposition -P /src/embeddings "https://huggingface.co/datasets/gsdf/EasyNegative/resolve/main/EasyNegative.safetensors?download=true"
     - python /src/init_env.py --skip-torch-cuda-test
-
+    # Создаем необходимые директории для моделей
+    - mkdir -p /src/models/text_encoder
+    - mkdir -p /src/models/VAE
+    - mkdir -p /src/models/Stable-diffusion
+    # Загружаем необходимые файлы моделей
+    - pget -f "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors?download=true" /src/models/text_encoder/clip_l.safetensors
+    - pget -f "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors?download=true" /src/models/text_encoder/t5xxl_fp16.safetensors
+    - pget -f "https://ai-photo.fra1.cdn.digitaloceanspaces.com/ae.safetensors" /src/models/VAE/ae.safetensors
+    # Загружаем основной чекпоинт Flux
+    - pget -f "https://civitai.com/api/download/models/819165?type=Model&format=SafeTensor&size=full&fp=nf4&token=18b51174c4d9ae0451a3dedce1946ce3" /src/models/Stable-diffusion/flux_checkpoint.safetensors
 
 # predict.py defines how predictions are run on your model
 predict: "predict.py:Predictor"

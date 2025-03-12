@@ -322,7 +322,6 @@ class Api:
                 self.vae_dir,
                 "https://ai-photo.fra1.cdn.digitaloceanspaces.com/ae.safetensors",
             ],
-
         }
 
         resp = []
@@ -334,14 +333,18 @@ class Api:
             module_dir, download_url = _additional_modules_dict[module]
             module_path = os.path.join(module_dir, module)
 
-            if os.path.exists(os.path.join(module_dir, module)):
-                print(f"[Additional modules]: Module {module} is downloaded")
+            # Проверяем наличие файла и используем его, если он уже существует
+            if os.path.exists(module_path):
+                print(f"[Additional modules]: Модуль {module} уже загружен, используем существующий файл")
             else:
-                print(f"[Additional modules] Downloading module {module} ...")
-                os.makedirs(module_dir, exist_ok=True)
-                download_base_weights(url=download_url, dest=module_path)
-                print(f"[Additional modules]: Module {module} is downloaded")
+                # Файл не найден, выводим предупреждение, но не скачиваем
+                # Файлы должны быть загружены на этапе сборки Docker в cog.yaml
+                print(f"[Additional modules] ВНИМАНИЕ: Модуль {module} не найден в {module_path}")
+                print(f"[Additional modules] Файлы должны быть загружены на этапе сборки Docker в cog.yaml")
+                print(f"[Additional modules] Проверьте настройки cog.yaml")
 
+            # Добавляем путь к модулю в ответ, даже если файл не существует
+            # Это позволит системе попытаться использовать файл, если он появится позже
             resp.append(module_path)
 
         print(f"[Additional modules] Proceeding with these modules: {resp=}")
