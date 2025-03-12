@@ -1,0 +1,54 @@
+# Configuration for Cog ⚙️
+# Reference: https://github.com/replicate/cog/blob/main/docs/yaml.md
+# Build timestamp: 2025-03-08:18-49 (обновляйте эту строку при каждой сборке, чтобы избежать кэширования)
+
+build:
+  # Настройки GPU и CUDA
+  gpu: true
+  cuda: "12.4"
+
+  # Версия Python
+  python_version: "3.11"
+
+  # Python пакеты
+  python_packages:
+    # Основные библиотеки
+    - "numpy<2"
+    - "einops==0.8.0"
+    - "fire==0.6.0"
+    
+    # Hugging Face
+    - "huggingface-hub==0.25.0"
+    - "safetensors==0.4.3"
+    - "sentencepiece==0.2.0"
+    - "transformers==4.43.3"
+    - "tokenizers==0.19.1"
+    
+    # Дополнительные зависимости
+    - "protobuf==5.27.2"
+    - "diffusers==0.32.2"
+    - "loguru==0.7.2"
+    - "pybase64==1.4.0"
+    - "pydash==8.0.3"
+    - "opencv-python==4.10.0.84"
+    - "gguf==0.14.0"
+    
+    # PyTorch и связанные пакеты
+    - "https://download.pytorch.org/whl/nightly/cu124/torch-2.6.0.dev20240918%2Bcu124-cp311-cp311-linux_x86_64.whl"
+    - "https://download.pytorch.org/whl/nightly/cu124/torchaudio-2.5.0.dev20240918%2Bcu124-cp311-cp311-linux_x86_64.whl"
+    - "https://download.pytorch.org/whl/nightly/cu124/torchvision-0.20.0.dev20240918%2Bcu124-cp311-cp311-linux_x86_64.whl"
+    - "https://download.pytorch.org/whl/nightly/pytorch_triton-3.1.0%2B5fe38ffd73-cp311-cp311-linux_x86_64.whl"
+
+  # commands run after the environment is setup
+  run:
+    - echo "Cache 105"
+    - curl -o /usr/local/bin/pget -L "https://github.com/replicate/pget/releases/download/v0.8.2/pget_linux_x86_64" && chmod +x /usr/local/bin/pget
+    - curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq
+    - git clone https://github.com/iQiexie/test1 /src
+    - mv /src/stable-diffusion-webui-forge-main/* /src
+    - wget --content-disposition -P /src/embeddings "https://huggingface.co/datasets/gsdf/EasyNegative/resolve/main/EasyNegative.safetensors?download=true"
+    - python /src/init_env.py --skip-torch-cuda-test
+
+
+# predict.py defines how predictions are run on your model
+predict: "predict.py:Predictor"
