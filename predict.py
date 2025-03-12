@@ -1,5 +1,12 @@
 # Prediction interface for Cog ⚙️
 # https://github.com/replicate/cog/blob/main/docs/python.md
+#
+# Live Preview Implementation:
+# - Когда enable_live_preview=True, генерация запускается в отдельном потоке
+# - Метод predict возвращает генератор stream_output, который отправляет события SSE
+# - События SSE содержат промежуточные изображения в формате base64 с префиксом data:image/png;base64,
+# - Replicate API получает эти события и отображает их в реальном времени
+# - Формат SSE соответствует документации Replicate: https://replicate.com/docs/streaming
 
 import json
 import os
@@ -7,10 +14,11 @@ import re
 import subprocess  # Для запуска внешних процессов
 import sys
 import time
+import threading
 from cog import BasePredictor, Input, Path
 from time import perf_counter
 from contextlib import contextmanager
-from typing import Callable
+from typing import Callable, Dict, List, Union, Any, Iterator
 from weights import WeightsDownloadCache
 
 
@@ -140,6 +148,14 @@ class Predictor(BasePredictor):
 
         # Устанавливаем unet тип на 'Automatic (fp16 LoRA)' для Flux, чтобы LoRA работали правильно
         shared.opts.set('forge_unet_storage_dtype', 'Automatic (fp16 LoRA)')
+        
+        # Включаем и настраиваем live preview
+        shared.opts.set('live_previews_enable', True)
+        shared.opts.set('show_progress_every_n_steps', 1)  # Обновлять каждый шаг
+        shared.opts.set('live_preview_content', 'Prompt')  # Показывать содержимое промпта
+        shared.opts.set('live_preview_refresh_period', 250)  # Период обновления в мс
+        shared.opts.set('live_preview_fast_interrupt', True)  # Быстрое прерывание
+        shared.opts.set('show_progress_grid', False)  # Отключаем сетку прогресса для экономии ресурсов
 
         # Оптимизация памяти для лучшего качества и скорости с Flux
         if self.has_memory_management:
@@ -233,6 +249,124 @@ class Predictor(BasePredictor):
                 self.init_script_args = patched_init_script_args
 
         self.api = CustomApi(app, queue_lock)
+        
+    def get_progress_and_live_preview(self, task_id, last_preview_id=-1):
+        """Получить текущий прогресс и live preview для задачи"""
+        from modules.progress import progressapi
+        from modules.api.models import ProgressRequest
+        
+        try:
+            # Создаем запрос для получения прогресса
+            req = ProgressRequest(
+                id_task=task_id,
+                id_live_preview=last_preview_id,
+                live_preview=True
+            )
+            
+            # Получаем прогресс и live preview
+            progress_data = progressapi(req)
+            
+            # Если есть новое изображение, возвращаем его
+            if hasattr(progress_data, 'live_preview') and progress_data.live_preview:
+                # Изображение уже в формате base64
+                return progress_data, progress_data.live_preview
+            
+            return progress_data, None
+        except Exception as e:
+            print(f"Ошибка при получении прогресса: {e}")
+            # Создаем заглушку для progress_data
+            from types import SimpleNamespace
+            dummy_progress = SimpleNamespace(
+                completed=False,
+                progress=0,
+                eta_relative=0,
+                id_live_preview=-1,
+                textinfo="Ожидание..."
+            )
+            return dummy_progress, None
+    
+    def stream_output(self, task_id) -> Iterator[str]:
+        """Генератор для потоковой передачи промежуточных результатов в формате SSE для Replicate"""
+        from modules import shared
+        
+        last_preview_id = -1
+        last_progress = 0
+        max_wait_time = 60  # Максимальное время ожидания в секундах
+        start_time = time.time()
+        event_id = int(time.time())
+        
+        while True:
+            try:
+                # Проверяем, завершилась ли задача
+                if hasattr(shared, 'task_cache') and task_id in shared.task_cache:
+                    result = shared.task_cache[task_id]
+                    
+                    # Если результат содержит ошибку, отправляем ее
+                    if isinstance(result, dict) and "error" in result:
+                        error_json = json.dumps({"detail": result["error"]})
+                        yield f"event: error\nid: {event_id}:0\ndata: {error_json}\n\n"
+                        yield f"event: done\ndata: {{\"reason\": \"error\"}}\n\n"
+                    else:
+                        # Отправляем финальные результаты
+                        for path in result:
+                            # Отправляем финальное изображение как output
+                            with open(path, "rb") as img_file:
+                                import base64
+                                img_data = base64.b64encode(img_file.read()).decode('utf-8')
+                                # Добавляем префикс для правильного отображения в браузере
+                                img_data = f"data:image/png;base64,{img_data}"
+                                yield f"event: output\nid: {event_id}:0\ndata: {img_data}\n\n"
+                                event_id += 1
+                        
+                        # Отправляем событие done
+                        yield f"event: done\ndata: {{}}\n\n"
+                    
+                    # Удаляем задачу из кэша
+                    del shared.task_cache[task_id]
+                    break
+                
+                # Получаем прогресс и live preview
+                progress_data, base64_image = self.get_progress_and_live_preview(task_id, last_preview_id)
+                
+                # Если задача завершена, но результат еще не в кэше, ждем немного
+                if progress_data.completed:
+                    time.sleep(0.5)
+                    continue
+                
+                # Если есть новое изображение, отправляем его
+                if base64_image:
+                    last_preview_id = progress_data.id_live_preview
+                    
+                    # Проверяем, содержит ли base64_image префикс data:image
+                    if not base64_image.startswith("data:image"):
+                        # Добавляем префикс для правильного отображения в браузере
+                        base64_image = f"data:image/png;base64,{base64_image}"
+                    
+                    # Отправляем событие output с изображением в формате base64
+                    yield f"event: output\nid: {event_id}:0\ndata: {base64_image}\n\n"
+                    event_id += 1
+                
+                # Если прогресс изменился, отправляем его как комментарий в SSE
+                current_progress = progress_data.progress
+                if current_progress != last_progress:
+                    last_progress = current_progress
+                    progress_percent = int(current_progress * 100)
+                    yield f": Progress: {progress_percent}%\n\n"
+                
+                # Проверяем таймаут
+                if time.time() - start_time > max_wait_time:
+                    error_json = json.dumps({"detail": "Timeout waiting for generation to complete"})
+                    yield f"event: error\nid: {event_id}:0\ndata: {error_json}\n\n"
+                    yield f"event: done\ndata: {{\"reason\": \"error\"}}\n\n"
+                    break
+                
+                time.sleep(0.1)  # Небольшая задержка
+            except Exception as e:
+                # В случае ошибки отправляем событие error
+                error_json = json.dumps({"detail": str(e)})
+                yield f"event: error\nid: {event_id}:0\ndata: {error_json}\n\n"
+                yield f"event: done\ndata: {{\"reason\": \"error\"}}\n\n"
+                break
 
     def predict(
         self,
@@ -362,8 +496,12 @@ class Predictor(BasePredictor):
             description="Enable ae",
             default=False
         ),
-    ) -> list[Path]:
-        print("Cache version 106")
+        enable_live_preview: bool = Input(
+            description="Включить потоковую передачу промежуточных результатов",
+            default=True
+        ),
+    ) -> Union[list[Path], Iterator[str]]:
+        print("Cache version 107")
         """Run a single prediction on the model"""
         from modules.extra_networks import ExtraNetworkParams
         from modules import scripts
@@ -432,6 +570,52 @@ class Predictor(BasePredictor):
         for lora in req['extra_network_data']['lora']:
             print(f"LoRA: {lora.items=}")
 
+        # Если включен live preview, запускаем генерацию в отдельном потоке и возвращаем генератор
+        if enable_live_preview:
+            from modules import shared
+            
+            # Создаем уникальный ID для задачи
+            task_id = str(uuid.uuid4())
+            
+            # Запускаем генерацию в отдельном потоке
+            def run_generation():
+                try:
+                    # Запускаем генерацию
+                    resp = self.api.text2imgapi(**req)
+                    
+                    # Сохраняем результат в shared.task_cache для последующего получения
+                    info = json.loads(resp.info)
+                    outputs = []
+                    
+                    for i, image in enumerate(resp.images):
+                        seed = info["all_seeds"][i]
+                        gen_bytes = BytesIO(base64.b64decode(image))
+                        gen_data = Image.open(gen_bytes)
+                        filename = "{}-{}.png".format(seed, uuid.uuid1())
+                        gen_data.save(fp=filename, format="PNG")
+                        output = Path(filename)
+                        outputs.append(output)
+                    
+                    # Сохраняем результаты в кэше задач
+                    if not hasattr(shared, 'task_cache'):
+                        shared.task_cache = {}
+                    shared.task_cache[task_id] = outputs
+                    
+                except Exception as e:
+                    print(f"Ошибка при генерации: {e}")
+                    if not hasattr(shared, 'task_cache'):
+                        shared.task_cache = {}
+                    shared.task_cache[task_id] = {"error": str(e)}
+            
+            # Запускаем поток
+            thread = threading.Thread(target=run_generation)
+            thread.daemon = True
+            thread.start()
+            
+            # Возвращаем генератор для потоковой передачи
+            return self.stream_output(task_id)
+        
+        # Если live preview отключен, используем обычный режим
         with catchtime(tag="Total Prediction Time"):
             resp = self.api.text2imgapi(**req)
 
