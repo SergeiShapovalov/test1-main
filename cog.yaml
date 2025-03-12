@@ -5,7 +5,7 @@
 build:
   # Настройки GPU и CUDA
   gpu: true
-  cuda: "12.6.2"
+  cuda: "12.4"
 
   # Версия Python
   python_version: "3.11"
@@ -33,11 +33,11 @@ build:
     - "opencv-python==4.10.0.84"
     - "gguf==0.14.0"
     
-    # PyTorch и связанные пакеты (стабильные версии для CUDA 12.6)
-    - "torch==2.6.0+cu126"
-    - "torchvision==0.21.0+cu126"
-    - "torchaudio==2.6.0+cu126"
-    - "--extra-index-url=https://download.pytorch.org/whl/cu126"
+    # PyTorch и связанные пакеты (стабильные версии для CUDA 12.4)
+    - "torch==2.4.0+cu124"
+    - "torchvision==0.19.0+cu124"
+    - "torchaudio==2.4.0+cu124"
+    - "--extra-index-url=https://download.pytorch.org/whl/cu124"
 
   # commands run after the environment is setup
   run:
