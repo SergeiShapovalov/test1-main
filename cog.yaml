@@ -34,9 +34,9 @@ build:
     - "gguf==0.14.0"
     
     # PyTorch и связанные пакеты (стабильные версии для CUDA 12.4)
-    - "torch==2.4.0+cu124"
-    - "torchvision==0.19.0+cu124"
-    - "torchaudio==2.4.0+cu124"
+    - "torch==2.5.1+cu124"
+    - "torchvision==0.20.1+cu124"
+    - "torchaudio==2.5.1+cu124"
     - "--extra-index-url=https://download.pytorch.org/whl/cu124"
 
   # commands run after the environment is setup
