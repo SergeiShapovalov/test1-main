@@ -267,7 +267,7 @@ class Predictor(BasePredictor):
                 try:
                     # Если image_data уже в формате base64, используем его напрямую
                     if isinstance(image_data, str) and image_data.startswith("data:image"):
-                        print("Получено изображение в формате base64")
+                        print(f"Получено изображение в формате base64, длина: {len(image_data)}")
                         self.log_preview_image(image_data, step, total_steps)
                     else:
                         # Иначе преобразуем изображение в base64
@@ -276,11 +276,22 @@ class Predictor(BasePredictor):
                         image_data.save(buffer, format="PNG")
                         base64_image = base64.b64encode(buffer.getvalue()).decode('utf-8')
                         print(f"Изображение преобразовано в base64, длина: {len(base64_image)}")
-                        self.log_preview_image(base64_image, step, total_steps)
+                        self.log_preview_image(f"data:image/png;base64,{base64_image}", step, total_steps)
                 except Exception as e:
                     print(f"Ошибка при обработке изображения в progress_callback: {e}")
                     import traceback
                     traceback.print_exc()
+        
+        # Проверяем, что shared.state существует и имеет необходимые атрибуты
+        if hasattr(shared, 'state'):
+            print(f"shared.state существует: {shared.state}")
+            print(f"Атрибуты shared.state: {dir(shared.state)}")
+            if hasattr(shared.state, 'current_latent'):
+                print(f"shared.state.current_latent существует: {shared.state.current_latent}")
+            else:
+                print("shared.state.current_latent не существует")
+        else:
+            print("shared.state не существует")
         
         # Сохраняем колбэк в shared для доступа из других модулей
         if not hasattr(shared, 'progress_callbacks'):
@@ -301,6 +312,12 @@ class Predictor(BasePredictor):
         # Добавляем колбэк в список
         shared.progress_callbacks.append(progress_callback)
         print(f"Колбэк добавлен в список, теперь в списке {len(shared.progress_callbacks)} элементов")
+        
+        # Проверяем, что колбэк добавлен правильно
+        if progress_callback in shared.progress_callbacks:
+            print("Колбэк успешно добавлен в список")
+        else:
+            print("Ошибка: колбэк не добавлен в список")
     
     def log_preview_image(self, base64_image, step, total_steps):
         """Выводит изображение в формате base64 в логи"""
@@ -313,20 +330,30 @@ class Predictor(BasePredictor):
         try:
             # Проверяем, содержит ли base64_image префикс data:image
             if base64_image.startswith("data:image"):
-                # Удаляем префикс для экономии места в логах
-                base64_image = base64_image.split(",", 1)[1]
+                # Получаем только данные base64 без префикса
+                base64_data = base64_image.split(",", 1)[1]
+            else:
+                base64_data = base64_image
             
-            # Выводим информацию о шаге и изображение в формате base64 с явным flush
+            # Выводим полное изображение в формате base64 с явным flush
+            # Используем специальные маркеры для начала и конца данных
             print(f"\n[LIVE_PREVIEW] Step: {step}/{total_steps}", flush=True)
-            print(f"[LIVE_PREVIEW_BASE64] {base64_image}", flush=True)
+            print(f"[LIVE_PREVIEW_BASE64_START]", flush=True)
+            print(f"{base64_data}", flush=True)
+            print(f"[LIVE_PREVIEW_BASE64_END]", flush=True)
             print("[LIVE_PREVIEW_END]\n", flush=True)
             
-            # Дополнительно выводим в stderr для гарантии
+            # Выводим в stderr полное изображение для гарантии
             import sys
             sys.stderr.write(f"[LIVE_PREVIEW] Step: {step}/{total_steps}\n")
-            sys.stderr.write(f"[LIVE_PREVIEW_BASE64] {base64_image[:30]}...{base64_image[-30:]}\n")
+            sys.stderr.write(f"[LIVE_PREVIEW_BASE64_START]\n")
+            sys.stderr.write(f"{base64_data}\n")
+            sys.stderr.write(f"[LIVE_PREVIEW_BASE64_END]\n")
             sys.stderr.write("[LIVE_PREVIEW_END]\n")
             sys.stderr.flush()
+            
+            # Для отладки выводим длину данных
+            print(f"Длина base64 данных: {len(base64_data)}")
         except Exception as e:
             print(f"Ошибка при логировании промежуточного изображения: {e}")
             import traceback
@@ -465,7 +492,7 @@ class Predictor(BasePredictor):
             default=True
         ),
     ) -> list[Path]:
-        print("Cache version 108")
+        print("Cache version 109")
         """Run a single prediction on the model"""
         from modules.extra_networks import ExtraNetworkParams
         from modules import scripts
@@ -487,11 +514,17 @@ class Predictor(BasePredictor):
                 if current_dir not in sys.path:
                     sys.path.append(current_dir)
                 
+                # Импортируем и применяем патч
                 import processing_patch
-                processing_patch.apply_processing_patch()
-                print("Патч для live preview успешно импортирован")
+                success = processing_patch.apply_processing_patch()
+                if success:
+                    print("Патч для live preview успешно применен")
+                else:
+                    print("Не удалось применить патч для live preview")
             except Exception as e:
                 print(f"Ошибка при импорте патча для live preview: {e}")
+                import traceback
+                traceback.print_exc()
 
         if debug_flux_checkpoint_url:
             self.setup(force_download_url=debug_flux_checkpoint_url)
@@ -552,17 +585,29 @@ class Predictor(BasePredictor):
 
         # Если включен live preview, настраиваем колбэк для вывода промежуточных результатов
         if enable_live_preview:
-            # Настраиваем колбэк для получения промежуточных результатов
-            self.setup_progress_callback()
-            
-            # Добавляем в payload параметры для включения live preview
-            payload["enable_live_preview"] = True
-            payload["show_progress_every_n_steps"] = 1
-            
-            # Обновляем запрос
-            req["txt2imgreq"] = StableDiffusionTxt2ImgProcessingAPI(**payload)
-            
-            print("Live preview включен. Промежуточные результаты будут выводиться в логи.")
+            try:
+                # Настраиваем колбэк для получения промежуточных результатов
+                self.setup_progress_callback()
+                
+                # Добавляем в payload параметры для включения live preview
+                payload["enable_live_preview"] = True
+                payload["show_progress_every_n_steps"] = 1
+                
+                # Обновляем запрос
+                req["txt2imgreq"] = StableDiffusionTxt2ImgProcessingAPI(**payload)
+                
+                print("Live preview включен. Промежуточные результаты будут выводиться в логи.")
+                
+                # Проверяем, что колбэки настроены правильно
+                from modules import shared
+                if hasattr(shared, 'progress_callbacks') and shared.progress_callbacks:
+                    print(f"Настроено {len(shared.progress_callbacks)} колбэков для live preview")
+                else:
+                    print("Предупреждение: колбэки для live preview не настроены")
+            except Exception as e:
+                print(f"Ошибка при настройке live preview: {e}")
+                import traceback
+                traceback.print_exc()
         with catchtime(tag="Total Prediction Time"):
             resp = self.api.text2imgapi(**req)
 

@@ -5,6 +5,8 @@
 
 import sys
 import traceback
+import base64
+from io import BytesIO
 from typing import List, Dict, Any, Callable, Optional, Union
 from PIL import Image
 
@@ -17,8 +19,9 @@ def apply_processing_patch():
         print("Применяем патч для включения live preview...")
         
         # Импортируем необходимые модули
-        from modules import processing, shared
+        from modules import processing, shared, devices
         from modules.processing import StableDiffusionProcessing, process_images
+        import torch
         
         # Сохраняем оригинальную функцию
         original_process_images = process_images
@@ -88,19 +91,21 @@ def apply_processing_patch():
         return False
 
 
-def get_preview_image(p) -> Optional[Image.Image]:
+def get_preview_image(p) -> Optional[str]:
     """
-    Получает промежуточное изображение из текущего процесса генерации.
+    Получает промежуточное изображение из текущего процесса генерации и возвращает его в формате base64.
     
     Args:
         p: Объект StableDiffusionProcessing
         
     Returns:
-        PIL.Image или None, если изображение недоступно
+        Строка base64 с изображением или None, если изображение недоступно
     """
     try:
         # Импортируем необходимые модули
-        from modules import shared
+        from modules import shared, devices
+        import torch
+        import numpy as np
         
         # Проверяем наличие state
         if not hasattr(shared, 'state'):
@@ -120,10 +125,7 @@ def get_preview_image(p) -> Optional[Image.Image]:
         
         # Декодируем latent в изображение
         try:
-            # Импортируем необходимые модули для декодирования
-            from modules import sd_samplers
-            
-            # Получаем декодер VAE
+            # Получаем модель
             if hasattr(p, 'sd_model'):
                 model = p.sd_model
             elif hasattr(shared, 'sd_model'):
@@ -132,36 +134,90 @@ def get_preview_image(p) -> Optional[Image.Image]:
                 print("Модель SD не найдена")
                 return None
             
-            # Декодируем latent в изображение
-            decoded = sd_samplers.decode_first_stage(model, current_latent)
-            if decoded is None:
-                print("Не удалось декодировать latent")
-                return None
+            # Переносим latent на устройство модели
+            device = devices.get_device_for("unet")
+            if current_latent.device != device:
+                current_latent = current_latent.to(device)
             
-            # Преобразуем тензор в изображение
-            x_sample = 255.0 * decoded.cpu().numpy()
-            x_sample = x_sample.clip(0, 255).astype(int)
-            
-            # Создаем изображение
-            import numpy as np
-            from PIL import Image
-            
-            # Преобразуем формат из [batch, height, width, channel] в [height, width, channel]
-            if len(x_sample.shape) == 4:
-                x_sample = x_sample[0]
-            
-            # Преобразуем из [channel, height, width] в [height, width, channel], если необходимо
-            if x_sample.shape[0] == 3 and len(x_sample.shape) == 3:
-                x_sample = np.transpose(x_sample, (1, 2, 0))
-            
-            # Создаем изображение
-            image = Image.fromarray(x_sample.astype(np.uint8))
-            
-            return image
+            # Декодируем latent в изображение с помощью VAE
+            with torch.no_grad():
+                # Используем VAE для декодирования
+                decoded = model.decode_first_stage(current_latent)
+                
+                # Преобразуем тензор в изображение
+                decoded = decoded.cpu().numpy()
+                
+                # Нормализуем значения
+                decoded = np.clip((decoded + 1.0) / 2.0, 0.0, 1.0)
+                
+                # Преобразуем в формат [batch, height, width, channel]
+                if decoded.shape[1] == 3:  # [batch, channel, height, width]
+                    decoded = np.transpose(decoded, (0, 2, 3, 1))
+                
+                # Берем первое изображение из батча
+                if len(decoded.shape) == 4:
+                    decoded = decoded[0]
+                
+                # Преобразуем в uint8
+                decoded = (decoded * 255).astype(np.uint8)
+                
+                # Создаем изображение PIL
+                image = Image.fromarray(decoded)
+                
+                # Преобразуем в base64
+                buffer = BytesIO()
+                image.save(buffer, format="PNG")
+                base64_image = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                
+                # Добавляем префикс data:image/png;base64,
+                base64_image = f"data:image/png;base64,{base64_image}"
+                
+                return base64_image
         except Exception as e:
             print(f"Ошибка при декодировании latent: {e}")
             traceback.print_exc()
-            return None
+            
+            # Попробуем альтернативный метод декодирования
+            try:
+                print("Пробуем альтернативный метод декодирования...")
+                
+                # Импортируем необходимые модули для декодирования
+                from modules import sd_samplers
+                
+                # Декодируем latent в изображение
+                decoded = sd_samplers.decode_first_stage(model, current_latent)
+                if decoded is None:
+                    print("Не удалось декодировать latent")
+                    return None
+                
+                # Преобразуем тензор в изображение
+                x_sample = 255.0 * decoded.cpu().numpy()
+                x_sample = x_sample.clip(0, 255).astype(np.uint8)
+                
+                # Преобразуем формат из [batch, height, width, channel] в [height, width, channel]
+                if len(x_sample.shape) == 4:
+                    x_sample = x_sample[0]
+                
+                # Преобразуем из [channel, height, width] в [height, width, channel], если необходимо
+                if x_sample.shape[0] == 3 and len(x_sample.shape) == 3:
+                    x_sample = np.transpose(x_sample, (1, 2, 0))
+                
+                # Создаем изображение
+                image = Image.fromarray(x_sample)
+                
+                # Преобразуем в base64
+                buffer = BytesIO()
+                image.save(buffer, format="PNG")
+                base64_image = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                
+                # Добавляем префикс data:image/png;base64,
+                base64_image = f"data:image/png;base64,{base64_image}"
+                
+                return base64_image
+            except Exception as e:
+                print(f"Ошибка при альтернативном декодировании latent: {e}")
+                traceback.print_exc()
+                return None
     except Exception as e:
         print(f"Ошибка при получении промежуточного изображения: {e}")
         traceback.print_exc()
