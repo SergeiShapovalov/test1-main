@@ -348,7 +348,7 @@ class Predictor(BasePredictor):
         ),
         debug_flux_checkpoint_url: str = Input(
             description="Flux checkpoint URL",
-            default="https://civitai.com/api/download/models/819165?type=Model&format=SafeTensor&size=full&fp=nf4&token=18b51174c4d9ae0451a3dedce1946ce3"
+            default=""
         ),
         enable_clip_l: bool = Input(
             description="Enable encoder",
