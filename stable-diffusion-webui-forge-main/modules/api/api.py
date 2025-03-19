@@ -316,7 +316,9 @@ class Api:
             ],
             "t5xxl_fp16.safetensors": [
                 self.text_encoder_dir,
-                "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors?download=true",
+                "https://huggingface.co/city96/t5-v1_1-xxl-encoder-gguf/resolve/main/t5-v1_1-xxl-encoder-f32.gguf?download=true",
+                # Альтернативный URL для t5 в формате GGUF
+                "https://huggingface.co/city96/t5-v1_1-xxl-encoder-gguf/resolve/main/t5-v1_1-xxl-encoder-f32.gguf?download=true",
             ],
             "ae.safetensors": [
                 self.vae_dir,

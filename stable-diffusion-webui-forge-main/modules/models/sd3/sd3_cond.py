@@ -43,7 +43,10 @@ CLIPG_CONFIG = {
     "textual_inversion_key": "clip_g",
 }
 
-T5_URL = "https://huggingface.co/AUTOMATIC/stable-diffusion-3-medium-text-encoders/resolve/main/t5xxl_fp16.safetensors"
+# Основной URL для t5xxl_fp16.safetensors
+T5_URL = "https://huggingface.co/city96/t5-v1_1-xxl-encoder-gguf/resolve/main/t5-v1_1-xxl-encoder-f32.gguf?download=true"
+# Альтернативный URL для t5 в формате GGUF
+T5_URL_ALT = "https://huggingface.co/city96/t5-v1_1-xxl-encoder-gguf/resolve/main/t5-v1_1-xxl-encoder-f32.gguf?download=true"
 T5_CONFIG = {
     "d_ff": 10240,
     "d_model": 4096,
@@ -200,9 +203,24 @@ class SD3Cond(torch.nn.Module):
                 self.clip_l.transformer.load_state_dict(SafetensorsMapping(file), strict=False)
 
         if self.t5xxl and 'text_encoders.t5xxl.transformer.encoder.embed_tokens.weight' not in state_dict:
-            t5_file = modelloader.load_file_from_url(T5_URL, model_dir=clip_path, file_name="t5xxl_fp16.safetensors")
-            with safetensors.safe_open(t5_file, framework="pt") as file:
-                self.t5xxl.transformer.load_state_dict(SafetensorsMapping(file), strict=False)
+            try:
+                # Сначала пробуем загрузить из основного URL
+                t5_file = modelloader.load_file_from_url(T5_URL, model_dir=clip_path, file_name="t5xxl_fp16.safetensors")
+                with safetensors.safe_open(t5_file, framework="pt") as file:
+                    self.t5xxl.transformer.load_state_dict(SafetensorsMapping(file), strict=False)
+                print("T5 модель успешно загружена из основного URL")
+            except Exception as e:
+                print(f"Ошибка при загрузке T5 модели из основного URL: {e}")
+                try:
+                    # Если основной URL недоступен, пробуем альтернативный URL
+                    print(f"Пробуем загрузить T5 модель из альтернативного URL: {T5_URL_ALT}")
+                    t5_file = modelloader.load_file_from_url(T5_URL_ALT, model_dir=clip_path, file_name="t5xxl_fp16.safetensors")
+                    with safetensors.safe_open(t5_file, framework="pt") as file:
+                        self.t5xxl.transformer.load_state_dict(SafetensorsMapping(file), strict=False)
+                    print("T5 модель успешно загружена из альтернативного URL")
+                except Exception as e2:
+                    print(f"Ошибка при загрузке T5 модели из альтернативного URL: {e2}")
+                    raise e2
 
     def encode_embedding_init_text(self, init_text, nvpt):
         return self.model_lg.encode_embedding_init_text(init_text, nvpt)

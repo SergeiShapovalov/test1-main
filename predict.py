@@ -21,7 +21,7 @@ def catchtime(tag: str) -> Callable[[], float]:
     print(f'[Timer: {tag}]: {perf_counter() - start:.3f} seconds')
 
 
-FLUX_CHECKPOINT_URL = "https://civitai.com/api/download/models/819165?type=Model&format=SafeTensor&size=full&fp=nf4&token=18b51174c4d9ae0451a3dedce1946ce3"
+FLUX_CHECKPOINT_URL = "https://civitai.com/api/download/models/691639?type=Model&format=SafeTensor&size=full&fp=fp32&token=18b51174c4d9ae0451a3dedce1946ce3"
 sys.path.extend(["/src"])
 
 
@@ -135,7 +135,7 @@ class Predictor(BasePredictor):
         shared.opts.set('sd_model_checkpoint', 'flux_checkpoint.safetensors')
 
         # Устанавливаем unet тип на 'Automatic (fp16 LoRA)' для Flux, чтобы LoRA работали правильно
-        shared.opts.set('forge_unet_storage_dtype', 'bnb-nf4')
+        shared.opts.set('forge_unet_storage_dtype', 'Automatic (fp16 LoRA)')
 
         # Оптимизация памяти для лучшего качества и скорости с Flux
         if self.has_memory_management:
